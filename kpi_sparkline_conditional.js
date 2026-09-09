@@ -281,22 +281,130 @@ looker.plugins.visualizations.add({
       order: 13
     },
 
-    target_value: {
-      type: "string",
-      label: "Target Line Value (blank = off)",
-      default: "",
-      placeholder: "e.g. 0.95",
+    show_x_axis: {
+      type: "boolean",
+      label: "Show X-Axis Values",
+      default: false,
       section: "Sparkline",
       order: 14
     },
 
-    target_color: {
-      type: "string",
-      label: "Target Line Color",
-      default: "#9aa5b1",
-      display: "color",
+    show_y_axis: {
+      type: "boolean",
+      label: "Show Y-Axis Values",
+      default: false,
       section: "Sparkline",
       order: 15
+    },
+
+    x_axis_label_count: {
+      type: "number",
+      label: "Maximum X-Axis Labels",
+      default: 4,
+      section: "Sparkline",
+      order: 16
+    },
+
+    y_axis_tick_count: {
+      type: "number",
+      label: "Y-Axis Tick Count",
+      default: 3,
+      section: "Sparkline",
+      order: 17
+    },
+
+    axis_font_size: {
+      type: "number",
+      label: "Axis Font Size",
+      default: 10,
+      section: "Sparkline",
+      order: 18
+    },
+
+    axis_color: {
+      type: "string",
+      label: "Axis Color",
+      default: "#7b8794",
+      display: "color",
+      section: "Sparkline",
+      order: 19
+    },
+
+    target_value: {
+      type: "string",
+      label: "Goal Line Value (blank = off)",
+      default: "",
+      placeholder: "e.g. 0.95",
+      section: "Reference Lines",
+      order: 1
+    },
+
+    target_color: {
+      type: "string",
+      label: "Goal Line Color",
+      default: "#9aa5b1",
+      display: "color",
+      section: "Reference Lines",
+      order: 2
+    },
+
+    target_label: {
+      type: "string",
+      label: "Goal Line Label",
+      default: "Goal",
+      section: "Reference Lines",
+      order: 3
+    },
+
+    industry_range_min: {
+      type: "string",
+      label: "Industry Range Minimum (blank = off)",
+      default: "",
+      placeholder: "e.g. 0.90",
+      section: "Reference Lines",
+      order: 4
+    },
+
+    industry_range_max: {
+      type: "string",
+      label: "Industry Range Maximum (blank = off)",
+      default: "",
+      placeholder: "e.g. 0.95",
+      section: "Reference Lines",
+      order: 5
+    },
+
+    industry_range_label: {
+      type: "string",
+      label: "Industry Range Label",
+      default: "Industry range",
+      section: "Reference Lines",
+      order: 6
+    },
+
+    industry_range_color: {
+      type: "string",
+      label: "Industry Range Color",
+      default: "#64748b",
+      display: "color",
+      section: "Reference Lines",
+      order: 7
+    },
+
+    industry_range_opacity: {
+      type: "number",
+      label: "Industry Range Fill Opacity (0-1)",
+      default: 0.08,
+      section: "Reference Lines",
+      order: 8
+    },
+
+    show_reference_labels: {
+      type: "boolean",
+      label: "Show Reference Labels",
+      default: true,
+      section: "Reference Lines",
+      order: 9
     },
 
     show_comparison_series: {
@@ -304,7 +412,7 @@ looker.plugins.visualizations.add({
       label: "Plot Comparison Series",
       default: false,
       section: "Sparkline",
-      order: 16
+      order: 20
     },
 
     comparison_series_color: {
@@ -313,7 +421,7 @@ looker.plugins.visualizations.add({
       default: "#9aa5b1",
       display: "color",
       section: "Sparkline",
-      order: 17
+      order: 21
     },
 
     data_order: {
@@ -327,7 +435,7 @@ looker.plugins.visualizations.add({
         { "Reverse of query": "reverse" }
       ],
       section: "Sparkline",
-      order: 18
+      order: 22
     },
 
     // =====================================================
@@ -1392,14 +1500,17 @@ looker.plugins.visualizations.add({
       const pointSize = Math.max(1, num(cfg.point_size, 3));
       const fillOpacity = clamp(num(cfg.fill_opacity, 0.35), 0, 1);
       const showPoints = cfg.show_points === true;
-
-      const padY = Math.max(lineWidth, showPoints ? pointSize + 1 : 2);
-      const padX = chartType === "column"
-        ? 0
-        : Math.max(lineWidth / 2, showPoints ? pointSize + 1 : 1);
-
-      const innerW = Math.max(1, width - padX * 2);
-      const innerH = Math.max(1, height - padY * 2);
+      const showXAxis = cfg.show_x_axis === true;
+      const showYAxis = cfg.show_y_axis === true;
+      const axisFontSize = Math.max(8, num(cfg.axis_font_size, 10));
+      const axisColor = cfg.axis_color || "#7b8794";
+      const pointPadding = Math.max(lineWidth, showPoints ? pointSize + 1 : 2);
+      const plotLeft = pointPadding + (showYAxis ? Math.max(38, axisFontSize * 4.5) : 0);
+      const plotRight = width - pointPadding;
+      const plotTop = pointPadding;
+      const plotBottom = height - pointPadding - (showXAxis ? axisFontSize + 10 : 0);
+      const innerW = Math.max(1, plotRight - plotLeft);
+      const innerH = Math.max(1, plotBottom - plotTop);
 
       // --- Y domain -------------------------------------------------------
 
@@ -1412,9 +1523,24 @@ looker.plugins.visualizations.add({
       const allValues = plotted.concat(compPlotted);
 
       const target = num(cfg.target_value, null);
+      const industryMinRaw = num(cfg.industry_range_min, null);
+      const industryMaxRaw = num(cfg.industry_range_max, null);
+      const hasIndustryRange =
+        industryMinRaw !== null &&
+        industryMaxRaw !== null;
+      const industryMin = hasIndustryRange
+        ? Math.min(industryMinRaw, industryMaxRaw)
+        : null;
+      const industryMax = hasIndustryRange
+        ? Math.max(industryMinRaw, industryMaxRaw)
+        : null;
 
       if (target !== null) {
         allValues.push(target);
+      }
+
+      if (hasIndustryRange) {
+        allValues.push(industryMin, industryMax);
       }
 
       let yMin = Math.min.apply(null, allValues);
@@ -1451,7 +1577,7 @@ looker.plugins.visualizations.add({
         yMax += nudge;
       }
 
-      const yFor = v => padY + (1 - (v - yMin) / (yMax - yMin)) * innerH;
+      const yFor = v => plotTop + (1 - (v - yMin) / (yMax - yMin)) * innerH;
 
       // Bars and areas rest on zero when zero is inside the domain.
       const baselineValue = (yMin <= 0 && yMax >= 0) ? 0 : yMin;
@@ -1464,8 +1590,8 @@ looker.plugins.visualizations.add({
       const step = n > 1 ? innerW / (n - 1) : 0;
 
       const xFor = i => chartType === "column"
-        ? padX + band * (i + 0.5)
-        : (n === 1 ? padX + innerW / 2 : padX + step * i);
+        ? plotLeft + band * (i + 0.5)
+        : (n === 1 ? plotLeft + innerW / 2 : plotLeft + step * i);
 
       series.forEach((p, i) => {
         p.x = xFor(i);
@@ -1482,6 +1608,23 @@ looker.plugins.visualizations.add({
         `preserveAspectRatio="none" role="img">`
       );
 
+      // Industry-standard range is rendered behind every series.
+      if (hasIndustryRange) {
+
+        const rangeTop = yFor(Math.min(yMax, industryMax));
+        const rangeBottom = yFor(Math.max(yMin, industryMin));
+        const rangeHeight = Math.max(0, rangeBottom - rangeTop);
+        const rangeColor = cfg.industry_range_color || "#64748b";
+
+        if (rangeHeight > 0) {
+          svg.push(
+            `<rect x="${plotLeft}" y="${rangeTop}" width="${innerW}" height="${rangeHeight}" ` +
+            `fill="${escapeAttr(rangeColor)}" ` +
+            `fill-opacity="${clamp(num(cfg.industry_range_opacity, 0.08), 0, 1)}"/>`
+          );
+        }
+      }
+
       // Comparison series sits behind the primary series.
       if (cfg.show_comparison_series && compPlotted.length > 0) {
 
@@ -1497,21 +1640,12 @@ looker.plugins.visualizations.add({
 
         compSegments.forEach(seg => {
           svg.push(
-            `<path d="${buildLinePath(seg, cfg.smooth_line, padY, padY + innerH)}" ` +
+            `<path d="${buildLinePath(seg, cfg.smooth_line, plotTop, plotBottom)}" ` +
             `fill="none" stroke="${escapeAttr(cfg.comparison_series_color || "#9aa5b1")}" ` +
             `stroke-width="${Math.max(1, lineWidth - 0.5)}" stroke-dasharray="4 3" ` +
             `stroke-linecap="round" stroke-linejoin="round" opacity="0.9"/>`
           );
         });
-      }
-
-      if (target !== null) {
-        const ty = yFor(target);
-        svg.push(
-          `<line x1="0" y1="${ty}" x2="${width}" y2="${ty}" ` +
-          `stroke="${escapeAttr(cfg.target_color || "#9aa5b1")}" stroke-width="1" ` +
-          `stroke-dasharray="3 3"/>`
-        );
       }
 
       if (chartType === "column") {
@@ -1528,17 +1662,17 @@ looker.plugins.visualizations.add({
         const segments = splitSegments(series.map(p => ({ x: p.x, y: p.y })));
 
         const linePath = segments
-          .map(seg => buildLinePath(seg, cfg.smooth_line, padY, padY + innerH))
+          .map(seg => buildLinePath(seg, cfg.smooth_line, plotTop, plotBottom))
           .join(" ");
 
         const areaPath = segments
-          .map(seg => buildAreaPath(seg, cfg.smooth_line, padY, padY + innerH, baselineY))
+          .map(seg => buildAreaPath(seg, cfg.smooth_line, plotTop, plotBottom, baselineY))
           .join(" ");
 
         // Colour runs are the contiguous stretches of points that share a
         // rule colour; drawing the full path once per run and clipping it to
         // that run's x-slice is what makes each point read as its own colour.
-        const runs = buildColorRuns(series, xFor, width, chartType, band);
+        const runs = buildColorRuns(series, xFor, plotLeft, plotRight);
 
         svg.push("<defs>");
 
@@ -1585,6 +1719,32 @@ looker.plugins.visualizations.add({
         }
       }
 
+      // Draw reference boundaries above the data so they remain visible on
+      // bar charts as well as line and area charts.
+      if (hasIndustryRange) {
+        const rangeColor = cfg.industry_range_color || "#64748b";
+
+        [industryMin, industryMax].forEach(value => {
+          if (value >= yMin && value <= yMax) {
+            const ry = yFor(value);
+            svg.push(
+              `<line x1="${plotLeft}" y1="${ry}" x2="${plotRight}" y2="${ry}" ` +
+              `stroke="${escapeAttr(rangeColor)}" stroke-width="1" ` +
+              `stroke-dasharray="2 3" opacity="0.8"/>`
+            );
+          }
+        });
+      }
+
+      if (target !== null && target >= yMin && target <= yMax) {
+        const ty = yFor(target);
+        svg.push(
+          `<line x1="${plotLeft}" y1="${ty}" x2="${plotRight}" y2="${ty}" ` +
+          `stroke="${escapeAttr(cfg.target_color || "#9aa5b1")}" stroke-width="1" ` +
+          `stroke-dasharray="5 3"/>`
+        );
+      }
+
       // --- Points ---------------------------------------------------------
 
       const lastValued = lastValuedPoint(series);
@@ -1614,6 +1774,72 @@ looker.plugins.visualizations.add({
         );
       });
 
+      // --- Axes and reference labels -------------------------------------
+
+      if (showYAxis) {
+        svg.push(renderYAxis({
+          yMin: yMin,
+          yMax: yMax,
+          yFor: yFor,
+          plotLeft: plotLeft,
+          plotRight: plotRight,
+          plotTop: plotTop,
+          plotBottom: plotBottom,
+          tickCount: Math.max(2, Math.round(num(cfg.y_axis_tick_count, 3))),
+          fontSize: axisFontSize,
+          color: axisColor,
+          series: series
+        }));
+      }
+
+      if (showXAxis) {
+        svg.push(renderXAxis({
+          series: series,
+          xFor: xFor,
+          plotLeft: plotLeft,
+          plotRight: plotRight,
+          plotBottom: plotBottom,
+          maxLabels: Math.max(2, Math.round(num(cfg.x_axis_label_count, 4))),
+          fontSize: axisFontSize,
+          color: axisColor
+        }));
+      }
+
+      if (cfg.show_reference_labels !== false) {
+
+        const labelX = plotRight - 3;
+        const referenceFontSize = Math.max(8, axisFontSize);
+
+        if (hasIndustryRange) {
+          const middle = (industryMin + industryMax) / 2;
+          if (middle >= yMin && middle <= yMax) {
+            const rangeText =
+              (cfg.industry_range_label || "Industry range") + " " +
+              formatAxisRange(industryMin, industryMax, series);
+            svg.push(renderReferenceLabel(
+              labelX,
+              yFor(middle),
+              rangeText,
+              cfg.industry_range_color || "#64748b",
+              referenceFontSize
+            ));
+          }
+        }
+
+        if (target !== null && target >= yMin && target <= yMax) {
+          const targetText =
+            (cfg.target_label || "Goal") + " " +
+            formatAxisValue(target, series);
+          svg.push(renderReferenceLabel(
+            labelX,
+            yFor(target),
+            targetText,
+            cfg.target_color || "#9aa5b1",
+            referenceFontSize
+          ));
+        }
+      }
+
       // --- Hover layer ----------------------------------------------------
 
       svg.push(
@@ -1628,7 +1854,7 @@ looker.plugins.visualizations.add({
       wireInteractions(host, state, {
         uid: uid,
         width: width,
-        padX: padX,
+        padX: plotLeft,
         step: step,
         band: band,
         chartType: chartType,
@@ -1659,9 +1885,142 @@ looker.plugins.visualizations.add({
       return out.join("");
     }
 
+    function renderYAxis(opts) {
+
+      const out = [];
+      const count = opts.tickCount;
+
+      out.push(
+        `<line x1="${opts.plotLeft}" y1="${opts.plotTop}" ` +
+        `x2="${opts.plotLeft}" y2="${opts.plotBottom}" ` +
+        `stroke="${escapeAttr(opts.color)}" stroke-width="0.75" opacity="0.65"/>`
+      );
+
+      for (let i = 0; i < count; i++) {
+
+        const ratio = count === 1 ? 0 : i / (count - 1);
+        const value = opts.yMax - ratio * (opts.yMax - opts.yMin);
+        const y = opts.yFor(value);
+
+        out.push(
+          `<line x1="${opts.plotLeft - 3}" y1="${y}" ` +
+          `x2="${opts.plotLeft}" y2="${y}" ` +
+          `stroke="${escapeAttr(opts.color)}" stroke-width="0.75"/>`
+        );
+
+        out.push(
+          `<text x="${opts.plotLeft - 6}" y="${y}" ` +
+          `text-anchor="end" dominant-baseline="middle" ` +
+          `font-size="${opts.fontSize}" fill="${escapeAttr(opts.color)}">` +
+          `${escapeHtml(formatAxisValue(value, opts.series))}</text>`
+        );
+      }
+
+      return out.join("");
+    }
+
+    function renderXAxis(opts) {
+
+      const out = [];
+      const indices = sampledIndices(opts.series.length, opts.maxLabels);
+      const labelY = opts.plotBottom + opts.fontSize + 6;
+
+      out.push(
+        `<line x1="${opts.plotLeft}" y1="${opts.plotBottom}" ` +
+        `x2="${opts.plotRight}" y2="${opts.plotBottom}" ` +
+        `stroke="${escapeAttr(opts.color)}" stroke-width="0.75" opacity="0.65"/>`
+      );
+
+      indices.forEach((index, position) => {
+
+        const x = opts.xFor(index);
+        const anchor =
+          position === 0 ? "start" :
+          position === indices.length - 1 ? "end" :
+          "middle";
+
+        out.push(
+          `<line x1="${x}" y1="${opts.plotBottom}" ` +
+          `x2="${x}" y2="${opts.plotBottom + 3}" ` +
+          `stroke="${escapeAttr(opts.color)}" stroke-width="0.75"/>`
+        );
+
+        out.push(
+          `<text x="${x}" y="${labelY}" text-anchor="${anchor}" ` +
+          `font-size="${opts.fontSize}" fill="${escapeAttr(opts.color)}">` +
+          `${escapeHtml(opts.series[index].label)}</text>`
+        );
+      });
+
+      return out.join("");
+    }
+
+    function sampledIndices(length, maxLabels) {
+
+      if (length <= 0) {
+        return [];
+      }
+
+      if (length <= maxLabels) {
+        return Array.from({ length: length }, (_, i) => i);
+      }
+
+      const indices = [];
+
+      for (let i = 0; i < maxLabels; i++) {
+        indices.push(Math.round(i * (length - 1) / (maxLabels - 1)));
+      }
+
+      return indices.filter((value, index) => index === 0 || value !== indices[index - 1]);
+    }
+
+    function renderReferenceLabel(x, y, text, color, fontSize) {
+
+      return (
+        `<text x="${x}" y="${y - 3}" text-anchor="end" ` +
+        `font-size="${fontSize}" font-weight="600" ` +
+        `fill="${escapeAttr(color)}" stroke="#ffffff" stroke-width="3" ` +
+        `paint-order="stroke" stroke-linejoin="round">` +
+        `${escapeHtml(text)}</text>`
+      );
+    }
+
+    function formatAxisRange(min, max, series) {
+      return formatAxisValue(min, series) + "\u2013" + formatAxisValue(max, series);
+    }
+
+    function formatAxisValue(value, series) {
+
+      const sample = series.find(point => {
+        if (!point.cell) {
+          return false;
+        }
+
+        const rendered = cellText(point.cell);
+        return rendered !== "";
+      });
+
+      const rendered = sample ? cellText(sample.cell) : "";
+
+      if (/%/.test(rendered)) {
+        return (value * 100).toLocaleString("en-US", {
+          minimumFractionDigits: 0,
+          maximumFractionDigits: 1
+        }) + "%";
+      }
+
+      const currency = rendered.match(/^\s*([$£€¥])/);
+
+      if (currency) {
+        return currency[1] + formatNumber(value);
+      }
+
+      return formatNumber(value);
+    }
+
     // Groups adjacent points that resolved to the same colour so a 400-point
     // series does not produce 400 clip paths.
-    function buildColorRuns(series, xFor, width, chartType, band) {
+    function buildColorRuns(series, xFor, plotLeft, plotRight) {
 
       const runs = [];
 
@@ -1682,11 +2041,11 @@ looker.plugins.visualizations.add({
         const isLast = idx === runs.length - 1;
 
         const x0 = isFirst
-          ? 0
+          ? plotLeft
           : midpoint(xFor(run.start - 1), xFor(run.start));
 
         const x1 = isLast
-          ? width
+          ? plotRight
           : midpoint(xFor(run.end), xFor(run.end + 1));
 
         // Half-pixel overlap prevents hairline gaps between adjacent clips.
