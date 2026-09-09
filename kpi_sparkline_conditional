@@ -1,0 +1,150 @@
+looker.plugins.visualizations.add({
+  id: "kpi_sparkline_conditional",
+  label: "KPI with Conditional Sparkline",
+  options: {
+    // --- Style Section ---
+    card_title: { type: "string", label: "Card Title", default: "Rate", section: "Style" },
+    kpi_font_size: { type: "number", label: "KPI Font Size", default: 48, section: "Style" },
+    positive_values_bad: { type: "boolean", label: "Positive Change is Bad", default: false, section: "Style" },
+    
+    // --- Sparkline Section ---
+    show_sparkline: { type: "boolean", label: "Show Sparkline", default: true, section: "Sparkline" },
+    chart_type: {
+      type: "string",
+      label: "Chart Type",
+      default: "area",
+      display: "select",
+      values: [{ "Area": "area" }, { "Line": "line" }, { "Column": "column" }],
+      section: "Sparkline"
+    },
+
+    // --- Conditional Formatting Section ---
+    threshold_excellent: {
+      type: "number",
+      label: "Excellent Threshold (Green) >",
+      default: 0.95,
+      placeholder: "e.g. 0.95",
+      section: "Formatting"
+    },
+    threshold_warning: {
+      type: "number",
+      label: "Warning Threshold (Yellow) >",
+      default: 0.90,
+      placeholder: "e.g. 0.90",
+      section: "Formatting"
+    },
+    color_excellent: { type: "string", label: "Excellent Color", default: "#16a34a", display: "color", section: "Formatting" },
+    color_warning: { type: "string", label: "Warning Color", default: "#eab308", display: "color", section: "Formatting" },
+    color_critical: { type: "string", label: "Critical Color", default: "#dc2626", display: "color", section: "Formatting" }
+  },
+
+  create: function (element, config) {
+    element.innerHTML = `
+      <style>
+        .viz-container { 
+          font-family: 'Open Sans', Helvetica, Arial, sans-serif; 
+          padding: 10px; height: 100%; display: flex; flex-direction: column; 
+        }
+        .kpi-header { font-size: 16px; color: #5f6b7a; margin-bottom: 4px; font-weight: 400; }
+        .kpi-value { font-weight: 700; color: #262d33; line-height: 1.1; }
+        .comparison { display: flex; align-items: center; gap: 6px; margin-top: 4px; font-size: 14px; }
+        .comp-badge { font-weight: 700; padding: 2px 8px; border-radius: 4px; }
+        .sparkline-container { flex-grow: 1; width: 100%; min-height: 50px; margin-top: 10px; }
+        .up { color: #16a34a; } .down { color: #dc2626; }
+      </style>
+      <div class="viz-container">
+        <div id="kpi-header" class="kpi-header"></div>
+        <div id="kpi-value" class="kpi-value"></div>
+        <div id="comparison" class="comparison"></div>
+        <div id="sparkline" class="sparkline-container"></div>
+      </div>
+    `;
+    
+    // Load Highcharts via CDN if not available
+    if (typeof Highcharts === "undefined") {
+      const script = document.createElement("script");
+      script.src = "https://code.highcharts.com/highcharts.js";
+      document.head.appendChild(script);
+    }
+  },
+
+  updateAsync: function (data, element, config, queryResponse, details, done) {
+    this.clearErrors();
+
+    // 1. Validation: Expecting 1 Dimension (Date) and 1 or 2 Measures
+    if (queryResponse.fields.measure_like.length < 1) {
+      this.addError({ title: "No Measure", message: "This chart requires at least one measure." });
+      return;
+    }
+
+    const measure = queryResponse.fields.measure_like[0];
+    const comparisonMeasure = queryResponse.fields.measure_like[1]; // Optional PoP measure
+    const dimension = queryResponse.fields.dimension_like[0];
+
+    // 2. Data Parsing
+    const lastRow = data[data.length - 1];
+    const kpiRawValue = lastRow[measure.name].value;
+    const kpiFormatted = lastRow[measure.name].rendered || kpiRawValue;
+    
+    // Comparison Logic
+    let comparisonHTML = '';
+    if (comparisonMeasure && lastRow[comparisonMeasure.name]) {
+        const compVal = lastRow[comparisonMeasure.name].value;
+        const compFormatted = lastRow[comparisonMeasure.name].rendered || compVal;
+        const isPositive = compVal > 0;
+        const isGood = config.positive_values_bad ? !isPositive : isPositive;
+        const colorClass = isGood ? 'up' : 'down';
+        const arrow = isPositive ? '▲' : '▼';
+        comparisonHTML = `<span class="comp-badge ${colorClass}">${arrow} ${compFormatted}</span> <span style="color:#5f6b7a">vs Prior</span>`;
+    }
+
+    // 3. Update DOM
+    element.querySelector("#kpi-header").innerText = config.card_title;
+    element.querySelector("#kpi-value").innerText = kpiFormatted;
+    element.querySelector("#kpi-value").style.fontSize = config.kpi_font_size + "px";
+    element.querySelector("#comparison").innerHTML = comparisonHTML;
+
+    // 4. Build Sparkline Data
+    const chartData = data.map(row => ({
+      x: row[dimension.name].value,
+      y: row[measure.name].value,
+      name: row[dimension.name].rendered || row[dimension.name].value
+    }));
+
+    if (config.show_sparkline && typeof Highcharts !== "undefined") {
+      Highcharts.chart('sparkline', {
+        chart: { type: config.chart_type, backgroundColor: 'transparent', margin: [5, 0, 5, 0], height: null },
+        title: { text: null },
+        credits: { enabled: false },
+        xAxis: { visible: false },
+        yAxis: { visible: false, startOnTick: false, endOnTick: false },
+        legend: { enabled: false },
+        tooltip: {
+          outside: true,
+          headerFormat: '<b>{point.key}</b><br/>',
+          pointFormat: `${measure.label_short || measure.label}: <b>{point.y}</b>`
+        },
+        plotOptions: {
+          series: {
+            lineWidth: 2,
+            marker: { enabled: false },
+            states: { hover: { lineWidth: 3 } },
+            fillOpacity: 0.1,
+            // HIGHCHARTS ZONES: This handles the conditional formatting
+            zoneAxis: 'y',
+            zones: [
+              { value: config.threshold_warning, color: config.color_critical }, // Anything below warning
+              { value: config.threshold_excellent, color: config.color_warning }, // Between warning and excellent
+              { color: config.color_excellent } // Anything above
+            ]
+          }
+        },
+        series: [{ data: chartData }]
+      });
+    } else {
+        element.querySelector("#sparkline").innerHTML = "";
+    }
+
+    done();
+  }
+});
